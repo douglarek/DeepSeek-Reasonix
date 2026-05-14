@@ -1,0 +1,103 @@
+name: Release mirror
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to mirror (e.g. v0.42.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror release assets
+    runs-on: ubuntu-latest
+    env:
+      HAS_GITEE: ${{ secrets.GITEE_TOKEN != '' }}
+      HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_SECRET_ACCESS_KEY != '' && secrets.R2_ACCOUNT_ID != '' && secrets.R2_BUCKET != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets from GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p assets
+          gh release download "${{ steps.tag.outputs.name }}" \
+            -R "${{ github.repository }}" \
+            -D assets
+
+      - name: Fetch release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(gh release view "${{ steps.tag.outputs.name }}" \
+            -R "${{ github.repository }}" --json body --jq .body)
+          {
+            echo "body<<RELEASE_BODY_EOF"
+            echo "$BODY"
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Mirror to Gitee
+        if: env.HAS_GITEE == 'true'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: reasonix/deep-seek-reasonix
+          RELEASE_TAG: ${{ steps.tag.outputs.name }}
+          RELEASE_BODY: ${{ steps.notes.outputs.body }}
+          ASSETS_DIR: assets
+        run: node scripts/mirror-release-to-gitee.mjs
+
+      - name: Configure AWS CLI for R2
+        if: env.HAS_R2 == 'true'
+        run: |
+          aws configure set aws_access_key_id "${{ secrets.R2_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          aws configure set region auto
+
+      - name: Mirror to R2
+        if: env.HAS_R2 == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp assets/ "s3://${R2_BUCKET}/${TAG}/" \
+            --recursive \
+            --endpoint-url "$ENDPOINT"
+          aws s3 cp assets/ "s3://${R2_BUCKET}/latest/" \
+            --recursive \
+            --endpoint-url "$ENDPOINT"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Mirror result"
+            echo ""
+            echo "- Tag: \`${{ steps.tag.outputs.name }}\`"
+            echo "- Gitee: ${{ env.HAS_GITEE == 'true' && '✓ mirrored' || 'skipped (no GITEE_TOKEN)' }}"
+            echo "- R2:    ${{ env.HAS_R2 == 'true' && '✓ mirrored' || 'skipped (no R2 secrets)' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
