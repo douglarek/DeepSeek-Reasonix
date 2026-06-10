@@ -329,6 +329,7 @@ var Chinese = Messages{
   reasonix setup [path]                                 交互式配置向导；生成 reasonix.toml（及 .env）
   reasonix config auto-plan [off|on]                    配置自动计划模式
   reasonix mcp <add|remove|list>                        管理 reasonix.toml 里的 MCP 服务器
+  reasonix update [--check] [--force]                   更新到最新版本
   reasonix doctor [--json]                              输出脱敏的本地诊断信息
   reasonix bot start|doctor|weixin-login                多渠道 IM bot 网关
   reasonix version
