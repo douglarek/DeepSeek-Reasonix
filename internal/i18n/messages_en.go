@@ -328,6 +328,7 @@ Usage:
   reasonix setup [path]                                 interactive config wizard; writes reasonix.toml (+ .env)
   reasonix config auto-plan [off|on]                    configure automatic plan mode
   reasonix mcp <add|remove|list>                        manage MCP servers in reasonix.toml
+  reasonix update [--check] [--force]                   update to the latest release
   reasonix doctor [--json]                              print redacted local diagnostics
   reasonix bot start|doctor|weixin-login                multi-channel IM bot gateway
   reasonix version
